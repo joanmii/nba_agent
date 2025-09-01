@@ -1,0 +1,21 @@
+# Entornos y compilaciones
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Datos grandes
+data/*.csv
+data/*.json
+data/*.parquet
+
+# Entornos virtuales
+venv/
+.env
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
