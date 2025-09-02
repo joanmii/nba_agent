@@ -19,3 +19,5 @@ venv/
 # Sistema operativo
 .DS_Store
 Thumbs.db
+
+mistral-7B-v0.1.tar
