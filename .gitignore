@@ -1,23 +1,37 @@
-# Entornos y compilaciones
+# Python
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
-
-# Jupyter
-.ipynb_checkpoints/
-
-# Datos grandes
-data/*.csv
-data/*.json
-data/*.parquet
-
-# Entornos virtuales
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
 venv/
-.env
+ENV/
+env.bak/
+venv.bak/
 
-# Sistema operativo
+# Modelos de ML (muy pesados)
+nba-agent-large/
+*.bin
+*.safetensors
+
+# Archivos de log
+*.log
+
+# Archivos de entorno
+.env
+.env.local
+
+# Archivos temporales
 .DS_Store
 Thumbs.db
 
-mistral-7B-v0.1.tar
+# Archivos específicos del IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Scripts de desarrollo privados
+upload_model_to_hf.py
+check_user.py

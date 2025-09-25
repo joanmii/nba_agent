@@ -27,10 +27,71 @@ from urllib.request import urlopen
 import time
 from IPython.display import display, HTML, Image
 import re
+from datetime import datetime
+from typing import Optional
 
 # -----------------------------
 # Variables globales / constantes
 # -----------------------------
+STATS = {
+    "PTS": "Puntos",
+    "AST": "Asistencias",
+    "REB": "Rebotes totales",
+    "OREB": "Rebotes ofensivos",
+    "DREB": "Rebotes defensivos",
+    "STL": "Robos",
+    "BLK": "Tapones",
+    "TOV": "Pérdidas",
+    "FGM": "Tiros de campo encestados",
+    "FGA": "Tiros de campo intentados",
+    "FG_PCT": "Porcentaje de campo",
+    "FG3M": "Triples encestados",
+    "FG3A": "Triples intentados",
+    "FG3_PCT": "Porcentaje de triples",
+    "FTM": "Tiros libres encestados",
+    "FTA": "Tiros libres intentados",
+    "FT_PCT": "Porcentaje de tiros libres",
+    "GP": "Partidos jugados",
+    "GS": "Partidos titular",
+    "MIN": "Minutos jugados",
+    "PF": "Faltas personales",
+    "EFF": "Efficiency",
+    "AST_TOV": "Ratio asistencias/pérdidas",
+    "STL_TOV": "Ratio robos/pérdidas"
+}
+
+TEAM  = {
+    "ATL": "Atlanta Hawks",
+    "BOS": "Boston Celtics",
+    "BKN": "Brooklyn Nets",
+    "CHA": "Charlotte Hornets",
+    "CHI": "Chicago Bulls",
+    "CLE": "Cleveland Cavaliers",
+    "DAL": "Dallas Mavericks",
+    "DEN": "Denver Nuggets",
+    "DET": "Detroit Pistons",
+    "WAS": "Washington Wizards",
+    "GSW": "Golden State Warriors",
+    "HOU": "Houston Rockets",
+    "IND": "Indiana Pacers",
+    "LAC": "Los Angeles Clippers",
+    "LAL": "Los Angeles Lakers",
+    "MEM": "Memphis Grizzlies",
+    "MIA": "Miami Heat",
+    "MIL": "Milwaukee Bucks",
+    "MIN": "Minnesota Timberwolves",
+    "NOP": "New Orleans Pelicans",
+    "NYK": "New York Knicks",
+    "OKC": "Oklahoma City Thunder",
+    "ORL": "Orlando Magic",
+    "PHI": "Philadelphia 76ers",
+    "PHX": "Phoenix Suns",
+    "POR": "Portland Trail Blazers",
+    "SAC": "Sacramento Kings",
+    "SAS": "San Antonio Spurs",
+    "TOR": "Toronto Raptors",
+    "UTA": "Utah Jazz"
+}
 
 AWARD_MAP = {
     "MVP": "NBA Most Valuable Player",
@@ -139,6 +200,7 @@ def safe_find_player(name: str):
     
     raise ValueError(f"No se encontró ningún jugador parecido a '{name}'")
 
+
 def get_team_id(abbreviation: str) -> int:
     """
     Devuelve el ID y nombre de un equipo dado su abreviatura.
@@ -161,7 +223,8 @@ def get_team_id(abbreviation: str) -> int:
     
     raise ValueError(f"No se encontró ningún equipo con la abreviatura '{abbreviation}'")
 
-def get_seasons(player_name: str) -> Dict[str, List[str]]:
+
+def get_seasons(player_name: str):
     """
     Devuelve las temporadas disponibles de un jugador separadas por tipo:
     Regular Season, All-Star y Playoffs. Convierte los season_id (ej. 22003)
@@ -196,28 +259,89 @@ def get_seasons(player_name: str) -> Dict[str, List[str]]:
         elif prefix == 6:
             seasons["NBACup"].append(season_str)
 
-    return seasons
+    # 🔹 Convertir diccionario a DataFrame
+    rows = []
+    for season_type, years in seasons.items():
+        for year in years:
+            rows.append({"SEASON_TYPE": season_type, "SEASON": year})
+
+    df_seasons = pd.DataFrame(rows)
+
+    # Imagen del jugador
+    image_url = [f"https://cdn.nba.com/headshots/nba/latest/1040x760/{player_id}.png"]
+
+    return df_seasons, seasons, image_url
+
+
+def get_team_full_name(abbreviation: str) -> str:
+    """
+    Obtiene el nombre completo de un equipo de la NBA a partir de su abreviatura.
+    
+    Args:
+        abbreviation (str): Abreviatura del equipo (ej. 'LAL').
+    
+    Returns:
+        str: Nombre completo del equipo (ej. 'Los Angeles Lakers').
+    """
+    abbreviation = abbreviation.upper()
+
+    # 🔹 Excepciones personalizadas (equipos actuales)
+    alias_map = {
+        "NO": "New Orleans Pelicans",
+        "GS": "Golden State Warriors",
+        "SA": "San Antonio Spurs",
+        "NY": "New York Knicks",
+        "UTAH": "Utah Jazz",
+        "WSH": "Washington Wizards",
+    }
+    
+    # 🔹 Equipos históricos (ya no existen)
+    historical_teams = {
+        "SEA": "Seattle SuperSonics",
+        "VAN": "Vancouver Grizzlies",
+        "CHA": "Charlotte Bobcats",  # Cuando eran Bobcats
+        "NOH": "New Orleans Hornets",
+        "NOK": "New Orleans/Oklahoma City Hornets",
+        "NJN": "New Jersey Nets",
+        "WSB": "Washington Bullets",
+    }
+    
+    # Verificar alias primero
+    if abbreviation in alias_map:
+        return alias_map[abbreviation]
+    
+    # Verificar equipos históricos
+    if abbreviation in historical_teams:
+        return historical_teams[abbreviation]
+
+    # 🔹 Buscar en la lista oficial de equipos actuales
+    all_teams = teams.get_teams()
+    for team in all_teams:
+        if team["abbreviation"].upper() == abbreviation:
+            return team["full_name"]
+
+    # 🔹 Si no se encuentra, devolver la abreviatura original (sin error)
+    return abbreviation
 
 # -----------------------------
 # Player Functions
 # -----------------------------
 
 
-def get_player_info(player: str) -> tuple[pd.DataFrame, list[dict]]:
+def get_player_info(player_name: str) -> tuple[pd.DataFrame, list[dict]]:
     """
     Obtiene información básica y estadística de un jugador usando CommonPlayerInfo.
 
     Args:
-        player: nombre del jugador
+        player_name: nombre del jugador
 
     Returns:
         tuple: (DataFrame con info del jugador, lista de dicts para LLM)
     """
-    player_info = safe_find_player(player)
+    player_info = safe_find_player(player_name)
     player_id = player_info["id"]
 
     info = commonplayerinfo.CommonPlayerInfo(player_id=player_id)
-
     df = info.common_player_info.get_data_frame()
     df['BIRTHDATE'] = pd.to_datetime(df['BIRTHDATE'], errors='coerce').dt.date
 
@@ -234,25 +358,23 @@ def get_player_info(player: str) -> tuple[pd.DataFrame, list[dict]]:
                           'TEAM_CITY', 'DLEAGUE_FLAG', 'NBA_FLAG', 'GAMES_PLAYED_FLAG' ])
     df = df.rename(columns={"DISPLAY_FIRST_LAST": "NAME","TEAM_NAME": "TEAM", 'ROSTERSTATUS': 'STATUS'})
 
-    
     df = df[['NAME', 'BIRTHDATE', 'POSITION', 'TEAM', 'JERSEY', 'COUNTRY', 'HEIGHT', 'WEIGHT', 'FROM_YEAR', 'TO_YEAR', 'STATUS',
              'SCHOOL', 'SEASON_EXP', 'DRAFT_YEAR', 'DRAFT_ROUND', 'DRAFT_NUMBER', 'GREATEST_75_FLAG']]
-    df = df.reset_index(drop=True)
+
+    # Convertir a formato clave-valor
+    df = pd.DataFrame(list(df.iloc[0].items()))
     dict_list = df.to_dict(orient="records")
 
+    image_url = [f"https://cdn.nba.com/headshots/nba/latest/1040x760/{player_id}.png"]
     try:
-        display(Image(url=f"https://cdn.nba.com/headshots/nba/latest/1040x760/{player_id}.png", width=100))
+        display(Image(url=image_url[0], width=100))
     except:
         pass
 
-    return df.T, dict_list
+    return df, dict_list, image_url
 
 
-def get_player_awards(
-    player_name: str,
-    award: list[str] | str | None = None,
-    season: str | int | None = None
-) -> tuple[pd.DataFrame, list[dict]]:
+def get_player_awards( player_name: str, award: list[str] | str | None = None, season: str | int | None = None) -> tuple[pd.DataFrame, list[dict]]:
     """
     Devuelve los premios y reconocimientos de un jugador NBA, 
     con opción de filtrar por premio y por temporada.
@@ -302,26 +424,21 @@ def get_player_awards(
     df = df.replace(r'^\s*$', None, regex=True)
     df.dropna(axis=1, how="all", inplace=True)
 
+    image_url = [f"https://cdn.nba.com/headshots/nba/latest/1040x760/{player_id}.png"]
     try:
-        display(Image(url=f"https://cdn.nba.com/headshots/nba/latest/1040x760/{player_id}.png", width=100))
+        display(Image(url=image_url[0], width=100))
     except:
         pass
 
-    return df, df.to_dict(orient="records")
+    return df, df.to_dict(orient="records"), image_url
 
 
-def get_player_stats(player: str,
-                     season: str = None,
-                     per_mode: str = "PerGame",
-                     season_type: str = "Regular Season",
-                     career: bool = False,
-                     ranking: bool = False,
-                     stats: list[str] = None) -> tuple[pd.DataFrame, list[dict]]:
+def get_player_stats(player_name: str, season: str = None, per_mode: str = "PerGame", season_type: str = "Regular Season", career: bool = False, ranking: bool = False, stats: list[str] = None) -> tuple[pd.DataFrame, list[dict]]:
     """
     Devuelve estadísticas de un jugador o rankings según los parámetros indicados.
     
     Args:
-        player: nombre del jugador
+        player_name: nombre del jugador
         season: temporada en formato 'YYYY-YY' (ej. '2022-23'), None = toda la carrera
         per_mode: "Totals", "PerGame" o "Per36"
         season_type: "Regular Season", "Playoffs" o "All Star"
@@ -336,7 +453,7 @@ def get_player_stats(player: str,
     """
 
     # 1. Buscar jugador
-    player_info = safe_find_player(player)
+    player_info = safe_find_player(player_name)
     player_id = player_info["id"]
 
     # 2. Llamar endpoint
@@ -377,7 +494,7 @@ def get_player_stats(player: str,
     if season is not None and not career:
         df = df[df["SEASON_ID"] == season]
         if df.empty:
-            raise ValueError(f"No hay datos para {player} en {season} ({season_type})")
+            raise ValueError(f"No hay datos para {player_name} en {season} ({season_type})")
 
     df = df.drop(columns=['PLAYER_ID', 'LEAGUE_ID', 'TEAM_ID'])
 
@@ -417,20 +534,17 @@ def get_player_stats(player: str,
             raise ValueError(f"Columnas no encontradas en dataset: {missing}")
         df = df[first_cols + stats_cols]
 
+    image_url = [f"https://cdn.nba.com/headshots/nba/latest/1040x760/{player_id}.png"]
+
     try:
-        display(Image(url=f"https://cdn.nba.com/headshots/nba/latest/1040x760/{player_id}.png", width=100))
+        display(Image(url=image_url[0], width=100))
     except:
         pass
     
-    return df.reset_index(drop=True), df.to_dict(orient="records")
+    return df.reset_index(drop=True), df.to_dict(orient="records"), image_url
 
 
-def get_all_time_leaders(stat: str = "PTS",
-                         top: int = 10,
-                         per_mode: str = "Totals",
-                         season_type: str = "Regular Season",
-                         player_name: str | None = None
-                         ) -> tuple[pd.DataFrame, list[dict], pd.DataFrame | None]:
+def get_all_time_leaders(stat: str = "PTS", top: int = 10, per_mode: str = "Totals", season_type: str = "Regular Season", player_name: Optional[str] = None) -> tuple[pd.DataFrame, list[dict]]:
     """
     Devuelve los líderes históricos en una estadística específica.
     Opcionalmente busca un jugador en el ranking (aunque no esté en el top inicial).
@@ -489,26 +603,29 @@ def get_all_time_leaders(stat: str = "PTS",
         raise ValueError(f"Estadística no soportada: {stat}. Usa una de {list(mapping.keys())}")
 
     df = mapping[stat]
+    image_url = []
 
     if player_name:
         player = safe_find_player(player_name)
+        player_id = player["id"]
+        image_url = [f"https://cdn.nba.com/headshots/nba/latest/1040x760/{player_id}.png"]
+        try:
+            display(Image(url=image_url[0], width=100))
+        except:
+            pass
         player_name = player["full_name"]
         mask = df["PLAYER_NAME"].str.contains(player_name, case=False, na=False)
         df = df[mask].copy()
         if df.empty:
             print(f"No se encontró ningún jugador que coincida con '{player_name}'")
 
+    
     df = df.drop(columns=['PLAYER_ID'])
 
-    return df, df.to_dict(orient="records")
+    return df, df.to_dict(orient="records"), image_url
 
 
-def get_league_leaders(stat: str = "PTS",
-                       season: str = "2024-25",
-                       season_type: str = "Regular Season",
-                       top: int = 10,
-                       per_mode: str = "PerGame",
-                       rookies: bool = False) -> tuple[pd.DataFrame, list[dict]]:
+def get_league_leaders(stat: str = "PTS", season: str = "2024-25", season_type: str = "Regular Season", top: int = 10, per_mode: str = "PerGame", rookies: bool = False) -> tuple[pd.DataFrame, list[dict]]:
     """
     Devuelve los líderes de la liga en una estadística determinada,
     mostrando solo columnas clave: RANK, PLAYER, TEAM, GP y la estadística solicitada.
@@ -524,13 +641,13 @@ def get_league_leaders(stat: str = "PTS",
     Returns:
         (DataFrame, lista de dicts) → DataFrame para pantalla, lista de dicts para LLM
     """
+    image_url = []
     scope = "Rookies" if rookies else 'S'
 
     leaders = leagueleaders.LeagueLeaders(
         season=season,
         scope=scope,
         season_type_all_star=season_type,
-        stat_category_abbreviation=stat,
         per_mode48=per_mode,
     )
 
@@ -540,16 +657,13 @@ def get_league_leaders(stat: str = "PTS",
 
     columns_to_keep = ["RANK", "PLAYER", "TEAM", stat, "GP"]
     df = df[columns_to_keep]
+    df = df.rename(columns={"PLAYER": "PLAYER_NAME"})
 
     dict_list = df.to_dict(orient="records")
-    return df, dict_list
+    return df, dict_list, image_url
 
 
-def get_draft_history(season: str = None,
-                      team: str = None,
-                      overall_pick: int = None,
-                      round_num: int = None,
-                      top: int = None) -> tuple[pd.DataFrame, list[dict]]:
+def get_draft_history(season: str = None, team: str = None, overall_pick: int = None, round_num: int = None, top: int = None) -> tuple[pd.DataFrame, list[dict]]:
     """
     Devuelve información del Draft de la NBA según filtros.
 
@@ -564,7 +678,12 @@ def get_draft_history(season: str = None,
         (DataFrame, lista de dicts) → DataFrame para mostrar, lista de dicts para LLM
     """
     team_id = get_team_id(team) if team else ""
-    
+    image_url = [f"https://cdn.nba.com/logos/nba/{team_id}/primary/L/logo.svg"] if team else []
+    try:
+        display(Image(url=image_url[0], width=100))
+    except:
+        pass
+
     draft = drafthistory.DraftHistory(
         season_year_nullable=season if season else "",
         team_id_nullable=team_id,
@@ -595,7 +714,7 @@ def get_draft_history(season: str = None,
     # Convertir a lista de diccionarios (para LLM)
     dict_list = df.to_dict(orient="records")
 
-    return df, dict_list
+    return df, dict_list, image_url
 
 
 def get_player_games(player_name: str, season: str = None, season_type: str = None, last_x: int = None) -> tuple[pd.DataFrame, list[dict]]:
@@ -626,6 +745,7 @@ def get_player_games(player_name: str, season: str = None, season_type: str = No
                     player_id_nullable=player_id,
                     season_nullable=season,
                     season_type_nullable=t,
+                    league_id_nullable='00',
                 )
                 df_temp = logs.player_game_logs.get_data_frame()
                 time.sleep(1)
@@ -638,7 +758,7 @@ def get_player_games(player_name: str, season: str = None, season_type: str = No
         df = pd.concat(all_logs, ignore_index=True) if all_logs else pd.DataFrame()
     else:
         # Toda la carrera
-        season_dict = get_seasons(player_name)
+        x, season_dict, _ = get_seasons(player_name)
         if season_type == "Regular Season":
             season_list = season_dict.get("Regular Season", [])
             types = ["Regular Season"]
@@ -663,6 +783,7 @@ def get_player_games(player_name: str, season: str = None, season_type: str = No
                         player_id_nullable=player_id,
                         season_nullable=s,
                         season_type_nullable=t,
+                        league_id_nullable='00',
                     )
                     df_temp = logs.player_game_logs.get_data_frame()
                     time.sleep(1)
@@ -675,7 +796,7 @@ def get_player_games(player_name: str, season: str = None, season_type: str = No
         df = pd.concat(all_logs, ignore_index=True) if all_logs else pd.DataFrame()
 
     if not df.empty:
-        df['GAME_DATE'] = pd.to_datetime(df['GAME_DATE']).dt.date
+        df['GAME_DATE'] = pd.to_datetime(df['GAME_DATE'], errors='coerce').dt.date
         df['MIN'] = df['MIN_SEC']
         df['SEASON_YEAR'] = df['SEASON_YEAR'] + ' ' + df['SEASON_TYPE']
         df = df.drop_duplicates(subset=['GAME_ID'], keep='first')
@@ -696,21 +817,16 @@ def get_player_games(player_name: str, season: str = None, season_type: str = No
 
     dict_list = df.to_dict(orient="records") if not df.empty else []
 
+    image_url = [f"https://cdn.nba.com/headshots/nba/latest/1040x760/{player_id}.png"]
+
     try:
-        display(Image(url=f"https://cdn.nba.com/headshots/nba/latest/1040x760/{player_id}.png", width=100))
+        display(Image(url=image_url[0], width=100))
     except:
         pass
-    return df, dict_list
+    return df, dict_list, image_url
 
 
-def get_high_low(
-    player_name: str, 
-    stat: str, 
-    season: str = None, 
-    season_type: str = None, 
-    low: bool = False,
-    top: int = 1
-) -> tuple[pd.DataFrame, list[dict]]:
+def get_high_low(player_name: str, stat: str, season: str = None, season_type: str = None, low: bool = False, top: int = 1) -> tuple[pd.DataFrame, list[dict]]:
     """
     Devuelve los partidos con los valores más altos o más bajos en la estadística indicada.
     
@@ -727,34 +843,27 @@ def get_high_low(
             - pd.DataFrame con las filas seleccionadas.
             - list[dict] con los mismos datos en formato diccionario.
     """
-    df, dict = get_player_games(player_name, season=season, season_type=season_type)
+    df, dict, image_url = get_player_games(player_name, season=season, season_type=season_type)
 
     if df.empty or stat not in df.columns:
         return pd.DataFrame(), []
 
-    cols = [stat, "SEASON_TYPE", "SEASON_YEAR", "PLAYER_NAME", "TEAM_ABBREVIATION", "GAME_DATE", "MATCHUP", "MIN"]
+    cols = [stat, "SEASON", "PLAYER_NAME", "TEAM", "GAME_DATE", "MATCHUP", "MIN"]
 
     # Ordenamos según la estadística
     df_sorted = df.sort_values(by=stat, ascending=low)
 
     # Nos quedamos con el top X
-    result = df_sorted.head(top)[cols + [c for c in df.columns if c not in cols]].reset_index(drop=True)
+    df = df_sorted.head(top)[cols + [c for c in df.columns if c not in cols]].reset_index(drop=True)
 
-    dict_list = result.to_dict(orient="records")
+    dict_list = df.to_dict(orient="records")
 
-    return result, dict_list
+    return df, dict_list, image_url
 
 
-def get_best_game(
-    player_name: str, 
-    season: str = None, 
-    season_type: str = None, 
-    worst: bool = False,
-    top: int = 1
-) -> tuple[pd.DataFrame, list[dict]]:
+def get_best_game(player_name: str, season: str = None, season_type: str = None, worst: bool = False, top: int = 1) -> tuple[pd.DataFrame, list[dict]]:
     """
-    Devuelve los mejores o peores partidos de un jugador según NBA_FANTASY_PTS.
-    Todas las columnas se devuelven, pero las más importantes van al principio.
+    Devuelve los mejores o peores partidos de un jugador según NBA_FANTASY_PTS. 
 
     Args:
         player_name (str): Nombre del jugador.
@@ -766,7 +875,7 @@ def get_best_game(
     Returns:
         tuple: (DataFrame con las filas seleccionadas, lista[dict] con los datos)
     """
-    df, dict = get_player_games(player_name, season=season, season_type=season_type)
+    df, dict, image_url = get_player_games(player_name, season=season, season_type=season_type)
     
     if df.empty or "NBA_FANTASY_PTS" not in df.columns:
         return pd.DataFrame(), []
@@ -786,20 +895,14 @@ def get_best_game(
     df_sorted = df.sort_values(by="NBA_FANTASY_PTS", ascending=worst)
 
     # Tomar top X
-    result = df_sorted.head(top)[cols].reset_index(drop=True)
+    df = df_sorted.head(int(top))[cols].reset_index(drop=True)
 
-    dict_list = result.to_dict(orient="records")
+    dict_list = df.to_dict(orient="records")
 
-    return result, dict_list
+    return df, dict_list, image_url
 
 
-def count_games(
-    player_name: str,
-    over_conditions: Dict | None = None,
-    under_conditions: Dict | None = None,
-    season: str = None,
-    season_type: str = None
-) -> tuple[int, pd.DataFrame]:
+def count_games(player_name: str, over_conditions: Dict | None = None, under_conditions: Dict | None = None, season: str = None, season_type: str = None) -> tuple[pd.DataFrame, int]:
     """
     Cuenta el número de partidos en los que un jugador cumple condiciones de estadísticas,
     tanto por encima como por debajo de ciertos valores, y devuelve el DataFrame filtrado.
@@ -816,7 +919,7 @@ def count_games(
             - int: Número de partidos que cumplen las condiciones.
             - pd.DataFrame: DataFrame con columnas reordenadas (stats primero, luego contexto).
     """
-    df, _ = get_player_games(player_name, season=season, season_type=season_type)
+    df, _, image_url= get_player_games(player_name, season=season, season_type=season_type)
 
     if df.empty:
         return 0, pd.DataFrame()
@@ -845,7 +948,7 @@ def count_games(
                 list(under_conditions.keys() if under_conditions else [])
 
     base_cols = ["SEASON", "PLAYER_NAME", "TEAM",
-                 "GAME_DATE", "MATCHUP", "MIN", "PTS", "AST", "REB", "BLK", "STL",
+                 "GAME_DATE", "MATCHUP", "MIN", "PTS", "REB", "AST", "STL", "BLK",
                  "FGM", "FGA", "FG3M", "FG3A", "TOV", "PF", "FG_PCT", "FG3_PCT", "FT_PCT"]
 
     # Evitar duplicados
@@ -853,15 +956,10 @@ def count_games(
 
     filtered = filtered[stat_cols + base_cols]
 
-    return len(filtered), filtered
+    return  filtered, len(filtered), image_url
 
 
-def get_triple_doubles(
-    player_name: str,
-    season: str = None,
-    season_type: str = None,
-    dd2: bool = False
-) -> int:
+def get_triple_doubles(player_name: str, season: str = None, season_type: str = None, dd2: bool = False) -> tuple[pd.DataFrame, int]:
     """
     Devuelve el número de triples-dobles o dobles-dobles logrados por un jugador.
 
@@ -875,24 +973,17 @@ def get_triple_doubles(
         int: Número de triples-dobles o dobles-dobles según `dd2`.
     """
     col = "DD2" if dd2 else "TD3"
+    df, _, image_url = get_player_games(player_name, season=season, season_type=season_type)
+    num = int(df[col].sum())
+    return  df[df[col] > 0], num, image_url
 
-    if season_type is None:
-        df_rs, _ = get_player_games(player_name, season=season, season_type="Regular Season")
-        df_po, _ = get_player_games(player_name, season=season, season_type="Playoffs")
-        count_rs = df_rs[col].sum() if col in df_rs else 0
-        count_po = df_po[col].sum() if col in df_po else 0
-        return count_rs + count_po
-    else:
-        df, _ = get_player_games(player_name, season=season, season_type=season_type)
-        return df[col].sum() if col in df else 0
-    
 
 # -----------------------------
 # Team Functions
 # -----------------------------
 
 
-def get_team_info(team: str, flag: str = None) -> pd.DataFrame:
+def get_team_info(team: str, flag: str = 'background') -> pd.DataFrame:
     """
     Obtiene información de un equipo de la NBA según el flag indicado.
     
@@ -937,17 +1028,18 @@ def get_team_info(team: str, flag: str = None) -> pd.DataFrame:
     df.dropna(axis=1, how="all", inplace=True)
     if flag == 'background' and not df.empty:
         df = df.drop(columns=['TEAM_ID'])
-        df = df.T
+        df = pd.DataFrame(list(df.iloc[0].items()))
+        
 
-    logo = f"https://cdn.nba.com/logos/nba/{team_id}/primary/L/logo.svg"
-    display(Image(url=logo, width=80))
+    image_url = [f"https://cdn.nba.com/logos/nba/{team_id}/primary/L/logo.svg"]
+    display(Image(url=image_url[0], width=80))
 
     if flag in ['hof', 'retired']:
         df = df.drop(columns='PLAYERID', errors="ignore")
     
     df.dropna(axis=1, how="all", inplace=True)
-        
-    return df, df.to_dict(orient="records")
+
+    return df, df.to_dict(), image_url
 
 
 def get_franchise_leaders(team: str) -> tuple[pd.DataFrame, list[dict]]:
@@ -982,20 +1074,13 @@ def get_franchise_leaders(team: str) -> tuple[pd.DataFrame, list[dict]]:
 
     df = pd.DataFrame(data)
 
-    logo = f"https://cdn.nba.com/logos/nba/{team_id}/primary/L/logo.svg"
-    display(Image(url=logo, width=80))
+    image_url = [f"https://cdn.nba.com/logos/nba/{team_id}/primary/L/logo.svg"]
+    display(Image(url=image_url[0], width=80))
 
-    return df.reset_index(drop=True), df.to_dict(orient="records")
+    return df.reset_index(drop=True), df.to_dict(orient="records"), image_url
 
 
-def get_games(
-    team1: str | None = None,
-    team2: str = None,
-    season: str = "2024-25",
-    season_type: str | None = None,
-    last_x: int = None,
-    month: int = None,
-    game_date: str = None,
+def get_games(team1: str | None = None, team2: str = None, season: str = "2024-25", season_type: str | None = None, last_x: int = None, month: int = None, game_date: str = None,
     date_from: str = None,
     date_to: str = None,
     home_away: str | None = None,  # "home" = local, "away" = visitante
@@ -1010,7 +1095,7 @@ def get_games(
     Siempre retorna los partidos ordenados de más recientes a más antiguos.
 
     Args:
-        team1 (str): Abreviatura del equipo principal (ej. "LAL").
+        team1 (str, optional): Abreviatura del equipo principal (ej. "LAL").
         team2 (str, optional): Abreviatura del equipo contrario para filtrar enfrentamientos directos.
         season (str, optional): Temporada en formato 'YYYY-YY'. Default: "2024-25".
         season_type (str, optional): Tipo de temporada ("Regular Season", "Playoffs", "PlayIn"). Default: None = todos.
@@ -1031,8 +1116,37 @@ def get_games(
               "PLUS_MINUS", "VIDEO_AVAILABLE"].
             - list[dict]: Lista de diccionarios cdel DataFrame.
     """
+    
+    def normalize_date(date_str: str | None) -> str | None:
+        """Convierte DD-MM-YYYY o DD/MM/YYYY a YYYY-MM-DD."""
+        if not date_str:
+            return None
+        try:
+            return datetime.strptime(date_str, "%Y-%m-%d").strftime("%Y-%m-%d")
+        except ValueError:
+            pass
+        try:
+            return datetime.strptime(date_str, "%d-%m-%Y").strftime("%Y-%m-%d")
+        except ValueError:
+            pass
+        try:
+            return datetime.strptime(date_str, "%Y/%m/%d").strftime("%Y-%m-%d")
+        except ValueError:
+            pass
+        try:
+            return datetime.strptime(date_str, "%d/%m/%Y").strftime("%Y-%m-%d")
+        except ValueError:
+            pass
+        raise ValueError(f"Formato de fecha no válido: {date_str}. Usa YYYY-MM-DD o DD-MM-YYYY (con - o /).")
+    
+    game_date = normalize_date(game_date)
+    date_from = normalize_date(date_from)
+    date_to = normalize_date(date_to)
+
     season_types = [season_type] if season_type else ["Regular Season", "Playoffs", "PlayIn"]
     all_dfs = []
+    logos = []
+    logo1 = logo2 = None
 
     if logo:
         if team1:
@@ -1051,6 +1165,9 @@ def get_games(
             else:
                 display(Image(url=logo1, width=80))
 
+    logos.append(logo1)
+    logos.append(logo2)
+
     for stype in season_types:
         params = {"season": season, "season_type_all_star": stype}
         if date_from:
@@ -1064,7 +1181,7 @@ def get_games(
         if df.empty:
             continue
 
-        df['GAME_DATE'] = pd.to_datetime(df['GAME_DATE']).dt.date
+        df['GAME_DATE'] = pd.to_datetime(df['GAME_DATE'], errors='coerce').dt.date
         mask = pd.Series(True, index=df.index)
 
         if team1:
@@ -1075,13 +1192,21 @@ def get_games(
             mask &= pd.to_datetime(df['GAME_DATE']).dt.month == month
         if game_date:
             mask &= df['GAME_DATE'] == pd.to_datetime(game_date).date()
-        if home_away:
-            if home_away.lower() == "home":
-                mask &= df['MATCHUP'].str.contains("vs")
-            elif home_away.lower() == "away":
-                mask &= df['MATCHUP'].str.contains("@")
-        if result:
-            mask &= df['WL'] == result.upper()
+        if home_away and team1:            
+            def check_home_away(matchup):
+                parts = matchup.split()
+                first_team, symbol, second_team = parts
+                if first_team == team1:
+                    return "home" if symbol == "vs." else "away"
+                elif second_team == team1:
+                    return "away" if symbol == "vs." else "home"
+                else:
+                    return None  
+            mask &= df['MATCHUP'].apply(lambda x: check_home_away(x) == home_away)
+
+        if result and team1:
+            team_full_name = get_team_full_name(team1) 
+            mask &= (df['WL'] == result.upper()) & (df['TEAM_NAME'] == team_full_name)
 
         filtered = df[mask].reset_index(drop=True)
         all_dfs.append(filtered)
@@ -1090,9 +1215,6 @@ def get_games(
         result_df = pd.concat(all_dfs)
     else:
         result_df = pd.DataFrame()
-
-    if last_x and not result_df.empty:
-        result_df = result_df.head(last_x*2).reset_index(drop=True)
 
     prefix_map = {
         "2": "Regular Season",
@@ -1111,17 +1233,11 @@ def get_games(
     year = df["SEASON_ID"].str[1:].astype(int)
     df["SEASON"] = year.astype(str) + "-" + (year + 1).astype(str).str[-2:] + '     ' + df['SEASON']
 
-    def get_opponent(row):
-        teams = [t.strip() for t in row['MATCHUP'].replace('vs.', ',').replace('@', ',').split(',')]
-        return teams[1] if teams[0] == row['TEAM_ABBREVIATION'] else teams[0]
-
-    df['OPPONENT_ABBR'] = df.apply(get_opponent, axis=1)
-
     df = df.rename(columns={"TEAM_NAME": "TEAM"})
 
-    df = df.drop(columns=['OPPONENT_ABBR', 'SEASON_ID', 'TEAM_ID', 'TEAM_ABBREVIATION', 'MIN', 'VIDEO_AVAILABLE'])
-
-    first_cols = ['SEASON', 'MATCHUP', 'GAME_DATE', 'TEAM','WL','PTS']
+    df = df.drop(columns=[ 'SEASON_ID', 'TEAM_ID', 'TEAM_ABBREVIATION', 'MIN', 'VIDEO_AVAILABLE'])
+    df['URL'] = 'https://www.nba.com/game/' + df['GAME_ID'].astype(str)
+    first_cols = ['URL', 'SEASON', 'MATCHUP', 'GAME_DATE', 'TEAM','WL','PTS']
     other_cols = [c for c in df.columns if c not in first_cols + ['GAME_ID']]
     df = df[first_cols + other_cols + ['GAME_ID']]
 
@@ -1129,10 +1245,13 @@ def get_games(
 
 
     mask = df.duplicated(subset='GAME_ID', keep='first')
-    df.loc[mask, ['SEASON', 'GAME_DATE', 'MATCHUP']] = ''
+    df.loc[mask, ['URL','SEASON', 'GAME_DATE', 'MATCHUP']] = ''
+
+    if last_x and not df.empty:
+        df = df.tail(last_x*2).reset_index(drop=True)
         
     dict_list = df.to_dict(orient="records")
-    return df, dict_list
+    return df, dict_list, logos
 
 
 def get_game_stats(game_id: str, boxscore: bool = False) -> tuple[pd.DataFrame, list[dict]]:
@@ -1170,6 +1289,8 @@ def get_game_stats(game_id: str, boxscore: bool = False) -> tuple[pd.DataFrame, 
     logo1 = f"https://cdn.nba.com/logos/nba/{team1_id}/primary/L/logo.svg"
     logo2 = f"https://cdn.nba.com/logos/nba/{team2_id}/primary/L/logo.svg"
 
+    logos = [logo1, logo2, f'https://www.nba.com/game/{game_id}']
+
     display(HTML(f"""
     <div style="display: flex; align-items: center; gap: 20px;">
         <img src="{logo1}" width="80">
@@ -1195,16 +1316,10 @@ def get_game_stats(game_id: str, boxscore: bool = False) -> tuple[pd.DataFrame, 
     
     dict_list = df.to_dict(orient="records")
 
-    return df, dict_list
+    return df, dict_list, logos
 
-def get_game(
-    team1: str,
-    team2: str = None,
-    game: int | None = None,
-    season: str = "2024-25",
-    season_type: str = "Regular Season",
-    boxscore: bool = False
-) -> tuple[pd.DataFrame, list[dict]]:
+
+def get_game(team1: str, team2: str = None, game: int | None = None, season: str = "2024-25", season_type: str = "Regular Season", boxscore: bool = False) -> tuple[pd.DataFrame, list[dict]]:
     """
     Devuelve las estadísticas de un partido especificando equipos y opcionalmente el número de partido.
 
@@ -1224,7 +1339,7 @@ def get_game(
         raise ValueError("Debe proporcionarse team1.")
 
     # Obtener partidos filtrados
-    df_games, _ = get_games(team1, team2, season, season_type, logo = False)
+    df_games, _, logos = get_games(team1, team2, season, season_type, logo = False)
     if df_games.empty:
         raise Exception("No se encontraron partidos con los filtros proporcionados.")
 
@@ -1235,7 +1350,7 @@ def get_game(
         selected_game = df_games.iloc[0]  # último partido
 
     game_id = selected_game["GAME_ID"]
-
+    
     return get_game_stats(game_id, boxscore=boxscore)
 
 
@@ -1274,6 +1389,7 @@ def get_awards(year: int = None, award: str = None, pos: str = None, team: str =
             - list[dict]: Lista de diccionarios con los mismos datos.
     """
     results = []
+    image_url = []
     time.sleep(0.5)
 
     if award:
@@ -1332,10 +1448,15 @@ def get_awards(year: int = None, award: str = None, pos: str = None, team: str =
                             fg = ppg = rpg = apg = blk = None
 
                 if current_award != 'AWARD':
+                    try:
+                        team_full = get_team_full_name(team_text) if team_text else None
+                    except ValueError:
+                        team_full = team_text
+
                     results.append({
                         "award": current_award,
                         "player": player,
-                        "TEAM": team_text,
+                        "TEAM": team_full,
                         "PPG": ppg,
                         "RPG": rpg,
                         "APG": apg,
@@ -1343,6 +1464,11 @@ def get_awards(year: int = None, award: str = None, pos: str = None, team: str =
                         "FG_PCT": fg,
                         "COACH_STATS": coach_stats
                     })
+
+        if team:
+            team_full_name = get_team_full_name(team)
+            results = [r for r in results if r["TEAM"] == team_full_name]
+
         time.sleep(0.5)
 
     elif award:  # Scraping por premio específico
@@ -1351,7 +1477,7 @@ def get_awards(year: int = None, award: str = None, pos: str = None, team: str =
             dfs = []
             all_results = []
             for sub_award in AWARD_GROUPS[award.upper()]:
-                df_sub, results_sub = get_awards(year=year, award=sub_award, pos=pos, team=team, last_x=last_x, logo = 1)
+                df_sub, results_sub, image_url = get_awards(year=year, award=sub_award, pos=pos, team=team, last_x=last_x, logo = 1)
                 if not df_sub.empty:
                     df_sub.insert(0, "AWARD", sub_award)  # Agregar columna AWARD al DataFrame del sub-premio
                     for r in results_sub:
@@ -1362,9 +1488,10 @@ def get_awards(year: int = None, award: str = None, pos: str = None, team: str =
             df = df.sort_values(["YEAR", "AWARD"], ascending=[False, True]).reset_index(drop=True)
             if team:
                 team_id = get_team_id(team)
-                display(Image(url=f"https://cdn.nba.com/logos/nba/{team_id}/primary/L/logo.svg", width=80))
+                image_url = [f"https://cdn.nba.com/logos/nba/{team_id}/primary/L/logo.svg"]
+                display(Image(url=image_url[0], width=80))
 
-            return df, all_results
+            return df, all_results, image_url
         
         if award not in AWARD_IDS:
             raise ValueError(f"Premio inválido. Debe estar en AWARD_IDS: {list(AWARD_IDS.keys())}")
@@ -1466,35 +1593,36 @@ def get_awards(year: int = None, award: str = None, pos: str = None, team: str =
     df = pd.DataFrame(results)
     df.dropna(axis=1, how="all", inplace=True)
 
-    
-
     if team:
         team_id = get_team_id(team)
+        image_url = [f"https://cdn.nba.com/logos/nba/{team_id}/primary/L/logo.svg"]
         if not logo:
-            display(Image(url=f"https://cdn.nba.com/logos/nba/{team_id}/primary/L/logo.svg", width=80))
+            display(Image(url=image_url[0], width=80))
 
-    return df, results
+    return df, results, image_url
 
 
-def get_league_standings(season: str, conference: str | None = None, filter: str | None = None) -> tuple[pd.DataFrame, list[dict]]:
+def get_league_standings(season: str = '2024-25', conference: str | None = None, filter: str | None = None) -> tuple[pd.DataFrame, list[dict]]:
     """
-    Devuelve la tabla de posiciones de la NBA para una temporada.
+    Devuelve la tabla de posiciones de la NBA para una temporada específica, incluyendo estadísticas por equipo y filtros opcionales.
 
     Args:
-        season (str): Temporada en formato 'YYYY-YY' (ej: '2024-25').
-        conference (str|None): "East", "West" o None (default = ambos).
-        filter (str|None): Filtra columnas por coincidencia parcial de nombre.
-                           Si es "basic", muestra solo columnas básicas (Conference, TEAM_ABBREVIATION, Team, Record, PlayoffRank).
-                           Si es "months", muestra solo columnas de meses (Jan, Feb, Mar, Apr, Oct, Nov, Dec).
-                           Streak para mostrar las estadíticas de racha de los equipos.
-                           Home y road para las estadísticas de local y visitante.
-                           Vs para ver estadísticas contra conferencias y divisiones.
-                           Score o Points para ver estadísticas de resultados y puntos a favor y en contra,
-                           etc.
+        season (str): Temporada en formato 'YYYY-YY' (ej. '2024-25').
+        conference (str | None): Conferencia a filtrar. Opciones: "East", "West" o None (ambas conferencias).
+        filter (str | None): Filtra columnas por coincidencia parcial de nombre o categoría: 'basic' (columnas básicas: Conference, TEAM_ABBREVIATION, Team, Record, PlayoffRank), 'months' (estadísticas por mes: Jan, Feb, Mar, Apr, Oct, Nov, Dec), 'streak' (racha de equipos), 'home'/'road' (estadísticas de local/visitante), 'vs' (estadísticas contra conferencias/divisiones), 'score'/'points' (resultados y puntos a favor/en contra) u otros valores para coincidencias parciales con nombres de columna.
 
     Returns:
-        (pd.DataFrame, list[dict]) → DataFrame con standings y lista de diccionarios.
+        tuple:
+            - pd.DataFrame: DataFrame con la tabla de posiciones filtrada según los parámetros.
+            - list[dict]: Lista de diccionarios con los mismos datos, optimizada para uso por LLMs.
     """
+    image_url = []
+    if conference:
+        if conference.capitalize() == "East":
+            image_url = ["https://cdn.nba.com/logos/nba/1610616833/primary/L/logo.svg"]
+        elif conference.capitalize() == "West":
+            image_url = ["https://cdn.nba.com/logos/nba/1610616834/primary/L/logo.svg"]
+    
     # Obtener standings desde nba_api
     standings = leaguestandingsv3.LeagueStandingsV3(
         league_id="00",
@@ -1541,15 +1669,15 @@ def get_league_standings(season: str, conference: str | None = None, filter: str
 
     dict_list = df.to_dict(orient="records") if not df.empty else []
 
-    return df, dict_list
+    try:
+        display(Image(url=image_url[0], width=80))
+    except:
+        pass
+
+    return df, dict_list, image_url
 
 
-def get_team_year_by_year_stats(
-    team: str,
-    per_mode_simple: str = "PerGame",
-    stats: bool = False,
-    playoffs: bool = False,
-) -> tuple[pd.DataFrame, list[dict]]:
+def get_team_year_by_year_stats(team: str, per_mode_simple: str = "PerGame", stats: bool = False, playoffs: bool = False, season: str = None) -> tuple[pd.DataFrame, list[dict], list[str]]:
     """
     Obtiene estadísticas históricas de un equipo NBA temporada por temporada.
 
@@ -1558,9 +1686,10 @@ def get_team_year_by_year_stats(
         per_mode_simple (str): Modo de estadísticas (default "PerGame").
         stats (bool): Si True devuelve las estadísticas del equipo.
         playoffs (bool): Si True devuelve los resultados en playoffs del equipo.
+        season (str, opcional): Temporada en formato "YYYY-YY" para filtrar.
 
     Returns:
-        (pd.DataFrame, list[dict]) → DataFrame con estadísticas y lista de diccionarios.
+        (pd.DataFrame, list[dict], list[str]) → DataFrame con estadísticas, lista de diccionarios y lista de imágenes.
 
     """
     team_id = get_team_id(team)
@@ -1573,6 +1702,10 @@ def get_team_year_by_year_stats(
     df = team_data.team_stats.get_data_frame()
     df["TEAM"] = df["TEAM_CITY"] + " " + df["TEAM_NAME"]
     df = df.drop(columns=["TEAM_ID", "TEAM_CITY", "TEAM_NAME", "CONF_COUNT", "DIV_COUNT"], errors="ignore")
+
+    # Filtrar por temporada si se especifica
+    if season is not None:
+        df = df[df['YEAR'] == season]
 
     # Ordenar columnas
     cols = df.columns.tolist()
@@ -1591,7 +1724,7 @@ def get_team_year_by_year_stats(
     if stats:
         df = df[first_cols + stats_cols]
     elif playoffs:
-        po_cols = ['PO_WINS', 'PO_LOSSES', 'NBA_FINALS_APPEARANCE']
+        po_cols = ['CONF_RANK','PO_WINS', 'PO_LOSSES', 'NBA_FINALS_APPEARANCE']
         df = df[first_cols + po_cols]
     else:
         df = df[first_cols + other_cols]
@@ -1599,38 +1732,43 @@ def get_team_year_by_year_stats(
     # Convertir a lista de diccionarios
     dict_list = df.to_dict(orient="records") if not df.empty else []
 
-    display(Image(url=f"https://cdn.nba.com/logos/nba/{team_id}/primary/L/logo.svg", width=80))
+    image_url = [f"https://cdn.nba.com/logos/nba/{team_id}/primary/L/logo.svg"]
 
-    return df, dict_list
+    display(Image(url=image_url[0], width=80))
+
+    return df, dict_list, image_url
 
 
-def get_nba_champions(year: int = None) -> tuple[pd.DataFrame, list[dict]]:
+def get_nba_champions(year: int | list | tuple = None) -> tuple[pd.DataFrame, list[dict]]:
     """
     Devuelve los campeones de la NBA y los principales jugadores de playoffs.
-    
+
     Args:
-        year (int | None): año específico para filtrar (ej. 2025). Si None → todos los años.
-    
+        year (int | list[int] | tuple[int], optional): año específico o rango [inicio, fin].
+                                                       Si None → todos los años.
+
     Returns:
-        (pd.DataFrame, list[dict]): DataFrame con columnas year, champion, runnerup, mvp_finals,
-                                     pts_leader_name, trb_leader_name, ast_leader_name, ws_leader_name,
-                                     y lista de diccionarios para uso con LLM.
+        (pd.DataFrame, list[dict]): DataFrame con columnas YEAR, champion, runnerup, FINALS_MVP,
+                                     PTS_LEADER, REB_LEADER, AST_LEADER, WIN_SHARE_LEADER,
+                                     y lista de diccionarios.
     """
+    image_url = []
+    time.sleep(0.5)
     url = "https://www.basketball-reference.com/playoffs/"
     html = urlopen(url)
     soup = BeautifulSoup(html, "lxml")
-    
+
     # Buscar tabla
     container = soup.find("div", {"id": "div_champions_index"})
     table = container.find("table") if container else None
-    
+
     if not table:
         raise Exception("No se encontró la tabla de campeones")
-    
+
     # Columnas a mantener
     keep_headers = ["year_id", "champion", "runnerup", "mvp_finals",
                     "pts_leader_name", "trb_leader_name", "ast_leader_name", "ws_leader_name"]
-    
+
     # Filas
     rows = table.find("tbody").find_all("tr")
     data = []
@@ -1641,29 +1779,33 @@ def get_nba_champions(year: int = None) -> tuple[pd.DataFrame, list[dict]]:
             text = cell.get_text(strip=True) if cell else None
             row_data.append(text)
         data.append(row_data)
-    
+
     # DataFrame
     df = pd.DataFrame(data, columns=keep_headers)
-    df = df.rename(columns={"year_id": "YEAR", 'runneru':'RUNNERUP', "pts_leader_name": "PTS_LEADER", 
-                            'mvp_finals':'FINALS_MVP', "trb_leader_name": "REB_LEADER", 
-                            "trb_leader_name": "REB_LEADER", "ast_leader_name": "AST_LEADER", "ws_leader_name": "WIN_SHARE_LEADER"})
-    
-    # Filtrar por año si se proporciona
-    if year:
-        df = df[df["YEAR"] == str(year)]
-        
+    df = df.rename(columns={
+        "year_id": "YEAR",
+        "champion": "CHAMPION",
+        "runnerup": "RUNNERUP",
+        "mvp_finals": "FINALS_MVP",
+        "pts_leader_name": "PTS_LEADER",
+        "trb_leader_name": "REB_LEADER",
+        "ast_leader_name": "AST_LEADER",
+        "ws_leader_name": "WIN_SHARE_LEADER"
+    })
+
+    # Filtrar por año
+    if year is not None:
+        if isinstance(year, (list, tuple)) and len(year) == 2:
+            start, end = map(str, year)
+            df = df[(df["YEAR"] >= start) & (df["YEAR"] <= end)]
+        else:
+            df = df[df["YEAR"] == str(year)]
+
     dict_list = df.to_dict(orient="records")
-    
-    return df.reset_index(drop=True), dict_list
+    return df.reset_index(drop=True), dict_list, image_url
 
 
-def get_team_roster(
-    team: str,
-    season: str,
-    season_type: str = "Regular Season",
-    per_mode: str = "PerGame",
-    filter: str | None = None  # None | "rank" | "stats" | "keywords separados por espacio"
-) -> tuple[pd.DataFrame, list[dict]]:
+def get_team_roster(team: str, season: str, season_type: str = "Regular Season", per_mode: str = "PerGame", filter: str | None = None ) -> tuple[pd.DataFrame, list[dict]]:
     """
     Devuelve el roster de un equipo para una temporada específica usando TeamPlayerDashboard,
     ordenado por puntos (PTS) descendente.
@@ -1760,9 +1902,11 @@ def get_team_roster(
 
     dict_list = df_players.to_dict(orient="records")
 
-    display(Image(url=f"https://cdn.nba.com/logos/nba/{team_id}/primary/L/logo.svg", width=80))
+    image_url = [f"https://cdn.nba.com/logos/nba/{team_id}/primary/L/logo.svg"]
 
-    return df_players, dict_list
+    display(Image(url=image_url[0], width=80))
+
+    return df_players, dict_list, image_url
 
 
 def get_playoffs(year: int, series: str | None = None, games: bool = False) -> pd.DataFrame:
@@ -1808,6 +1952,16 @@ def get_playoffs(year: int, series: str | None = None, games: bool = False) -> p
         >>> get_playoffs(2019, series="CF", games=True)
         # Partidos de las Conference Finals 2019
     """
+
+    image_url = ["https://upload.wikimedia.org/wikipedia/en/4/44/NBA_Playoffs_logo_%282018%29.svg"]
+
+    if series:
+        if series == 'Finals':
+            image_url= ["https://upload.wikimedia.org/wikipedia/en/4/44/NBA_Finals_logo_%282022%29.svg"]
+            display(Image(url=image_url[0], width=150))
+            
+    time.sleep(0.5)
+
     if series:
         if isinstance(series, str):
             series = [series]
@@ -1862,7 +2016,7 @@ def get_playoffs(year: int, series: str | None = None, games: bool = False) -> p
             })
 
         df_series = pd.DataFrame(all_series)
-        return df_series, df_series.to_dict(orient="records")
+        return df_series, df_series.to_dict(orient="records"), image_url
 
     else:
         # --- Games DataFrame ---
@@ -1898,5 +2052,8 @@ def get_playoffs(year: int, series: str | None = None, games: bool = False) -> p
                         "SCORE_HOME": local_score
                     })
 
+        
         df_games = pd.DataFrame(all_games)
-        return df_games, df_games.to_dict(orient="records")
+
+        return df_games, df_games.to_dict(orient="records"), image_url
+    
