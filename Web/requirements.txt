@@ -1,0 +1,48 @@
+# Dependencias para NBA Assistant Web App
+
+# Framework web
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+
+# Modelos de datos
+pydantic==2.5.0
+
+# Procesamiento asíncrono
+nest-asyncio==1.5.8
+
+# Transformers y ML
+transformers==4.36.0
+torch==2.1.0
+
+# Análisis de datos
+pandas==2.1.4
+
+# Utilidades para texto
+unicodedata2==15.1.0
+
+# Servidor de archivos estáticos (incluido en FastAPI pero explícito)
+aiofiles==23.2.1
+
+# Para el procesamiento de texto y parsing
+ast-tools==0.1.4
+
+# ========================================
+# Dependencias específicas para nba_toolkit
+# ========================================
+
+# API de la NBA
+nba-api==1.2.1
+
+# Coincidencia difusa de texto (para búsqueda de jugadores/equipos)
+thefuzz[speedup]==0.20.0
+
+# Web scraping
+requests==2.32.5
+beautifulsoup4==4.12.2
+lxml==6.0.1
+
+# IPython para display (opcional, para notebooks)
+ipython==8.18.1
+
+# Tipos adicionales ya incluidos en typing (Python 3.5+)
+# typing ya está incluido en Python estándar
